@@ -1,0 +1,41 @@
+diff --git a/docs/architecture.md b/docs/architecture.md
+index f71ee99..9e620ab 100644
+--- a/docs/architecture.md
++++ b/docs/architecture.md
+@@ -43,9 +43,9 @@ absolute spec overrides). **Local models** for media, because they must not depe
+ availability. **An LLM** for the one part that's legitimately hard to hand-write well: fusing
+ ~15 heterogeneous signals into a message_type + action judgment with a human-readable reason
+ across 11 categories. **A full rule-based classifier as the fallback**, not just a safety-net
+-stub G현 because in a 24-hour hackathon, the failure mode that actually matters isn't "the LLM is
++stub G현 because in production, the failure mode that actually matters isn't "the LLM is
+ occasionally wrong," it's "the API key runs out of quota, hits a rate limit, or the network blips
+-two hours before the deadline and the submission produces zero rows." Given that constraint, the
++mid-run and the pipeline produces zero rows." Given that constraint, the
+ fallback classifier was built to be a real second opinion, not a placeholder:
+ 
+ - **This is implemented, not hypothetical.** `Router._route_via_rules` in `src/router.py` is a
+@@ -57,11 +57,11 @@ fallback classifier was built to be a real second opinion, not a placeholder:
+   without discount keywords; personal vs. urgent on ambiguous direct-address phrasing) are exactly
+   the semantic nuance an LLM is *better* at than regex G현 which is the argument for the LLM being
+   primary, not a reason to distrust the fallback as a safety net.
+-- **Why this matters for the 24-hour constraint specifically:** it means the submission's
++- **Why this matters for production reliability specifically:** it means the pipeline's
+   reliability does not depend on the API staying up for the full 110-message run. If Claude
+   becomes unavailable at any point, the pipeline degrades to a still-reasonably-accurate
+   deterministic classifier instead of failing to produce `output.csv` at all G현 which is a far
+-  worse outcome under a hard deadline than a few percentage points of routing accuracy.
++  worse outcome than a few percentage points of routing accuracy.
+ - **Why not pure-LLM:** the two absolute spec rules (scam is always `mute`; urgent direct mention
+   overrides a muted group) are things an LLM gets right *almost* always, not *always* G현 and
+   "almost always" isn't good enough when the spec calls them non-negotiable. Enforcing them in
+@@ -74,7 +74,8 @@ fallback classifier was built to be a real second opinion, not a placeholder:
+ **Model & secrets**: `claude-opus-5` by default (`ROUTER_MODEL` env var override), called via the
+ official `anthropic` Python SDK. The API key is read exclusively from `ANTHROPIC_API_KEY` in the
+ environment (`os.environ.get("ANTHROPIC_API_KEY")` in `src/router.py` and `src/media.py`) G현 never
+-hardcoded, never prompted for, per `AGENTS.md` -�6.3.
++hardcoded into source and never requested via an interactive prompt, so the key can't leak into
++version control or a terminal transcript.
+ 
+ ---
+ 
+

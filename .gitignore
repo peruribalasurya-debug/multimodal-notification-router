@@ -1,0 +1,16 @@
+# Secrets
+.env
+
+# Local conversation/transcript logs -- must never be committed. These should only ever
+# live outside the repo (e.g. under the user's home directory), so if a copy shows up
+# here, it's excluded regardless of how it got here.
+/log.txt
+
+# Caches / checkpoints (regenerated automatically by run.py / src/media.py)
+src/.cache/
+
+# Python
+__pycache__/
+*.pyc
+
+code.zip
