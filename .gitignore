@@ -1,5 +1,6 @@
 # Secrets
 .env
+.streamlit/secrets.toml
 
 # Local conversation/transcript logs -- must never be committed. These should only ever
 # live outside the repo (e.g. under the user's home directory), so if a copy shows up
