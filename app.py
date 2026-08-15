@@ -65,6 +65,7 @@ from cascade_router import (  # noqa: E402
     TIER_LLM,
     TIER_LLM_UNAVAILABLE,
     TIER_MIXED,
+    TIER_PROMOTION_TIER1_PROTECTED,
     TIER_TIER2_FULL,
     CascadeRouter,
 )
@@ -152,6 +153,7 @@ MODE_FULL_LLM = "full_llm"
 _SOURCE_LABELS = {
     TIER_TIER2_FULL: "Tier 2 -- cheap classifier resolved both fields locally (no LLM call)",
     TIER_MIXED: "Tier 1 + Tier 2 mix -- classifier's action, rules' message_type (no LLM call)",
+    TIER_PROMOTION_TIER1_PROTECTED: "Tier 1 -- promotion routing protected from tier 2's action (no LLM call)",
     TIER_LLM: "Tier 3 -- escalated to the LLM",
     TIER_LLM_UNAVAILABLE: "Tier 3 unavailable (no server API key) -- fell back to Tier 1 rules",
     "tier1_rules_forced": "Tier 1 rules only (forced by the mode toggle)",

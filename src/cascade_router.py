@@ -30,6 +30,21 @@ Tier 2 -- the cheap classifier (src/cheap_classifier.py), gated per-field on
           and tier 1 also had nothing to offer) -> escalate the WHOLE message
           to tier 3. Never mixes an unaccepted tier-2 field with tier 3.
 
+    Exception, checked before any of the above: whenever tier 1's own rules
+    classify the message as message_type=="promotion", tier 2's action is
+    never used, regardless of its confidence. Promotion routing is defined
+    entirely by relationship state -- allows_promotions, opt-out timestamp,
+    dismissal history (see rule 4 in Router._route_via_rules) -- and tier 2's
+    action head, whose 400-feature TF-IDF text signal dominates its ~103-row
+    training set, was found to ignore that: two personas with opposite
+    Myntra opt-in history ("real subscription, opted in" vs "no relationship
+    on file at all") both got action=mute for the identical promotional text
+    ("you have won 50% off..."), because prize/lottery-style phrasing reads
+    as mute-flavored to the text signal independent of who receives it. Tier
+    1's action -- computed together with message_type=="promotion" by the
+    same rule, so it always exists whenever this condition is true -- is used
+    directly instead (see TIER_PROMOTION_TIER1_PROTECTED below).
+
 Tier 3 -- LLM escalation (Router._route_via_llm), for everything not resolved
     by tiers 1-2. Uses the router's own response cache, so a rerun over an
     unchanged prompt costs nothing.
@@ -98,6 +113,7 @@ ACTION_INELIGIBILITY_PATTERNS = (INJECTION_PATTERN, CREDENTIAL_PATTERN, HARD_URG
 
 TIER_TIER2_FULL = "tier2_full"
 TIER_MIXED = "tier1_type_tier2_action"
+TIER_PROMOTION_TIER1_PROTECTED = "tier1_promotion_action_protected"
 TIER_LLM = "tier3_llm"
 TIER_LLM_UNAVAILABLE = "tier3_unavailable_fallback_tier1"
 
@@ -164,7 +180,37 @@ class CascadeRouter(Router):
             and tier2_message_type in self.validated_message_type_classes
         )
 
-        if action_accepted and message_type_accepted:
+        # Promotion routing is relationship-dependent by definition (opt-in,
+        # opt-out timestamp, dismissal history -- rule 4 in _route_via_rules),
+        # and tier 2's action head has no reliable signal for that (see the
+        # module docstring). Whenever tier 1 itself classified the message as
+        # a promotion, its action -- computed by that same rule, so it always
+        # exists here -- is authoritative; tier 2's action is never consulted
+        # for this case, no matter how confident.
+        if tier1_raw["message_type"] == "promotion":
+            if tier1_raw.get("action"):
+                source = TIER_PROMOTION_TIER1_PROTECTED
+                raw = {
+                    "action": tier1_raw["action"],
+                    "message_type": tier1_raw["message_type"],
+                    "reason": tier1_raw["reason"],
+                    "confidence": tier1_raw["confidence"],
+                    "evidence_message_ids": tier1_raw["evidence_message_ids"],
+                }
+            else:
+                # Defensive only -- _route_via_rules always pairs an action
+                # with message_type=="promotion" today, so this branch has no
+                # live trigger, but if that ever changes, escalate rather
+                # than fall back to tier 2's unreliable action for a
+                # relationship-dependent decision.
+                llm_raw = self._route_via_llm(message, ctx, media_result) if self.llm_available else None
+                if llm_raw is not None:
+                    source = TIER_LLM
+                    raw = llm_raw
+                else:
+                    source = TIER_LLM_UNAVAILABLE
+                    raw = tier1_raw
+        elif action_accepted and message_type_accepted:
             source = TIER_TIER2_FULL
             raw = {
                 "action": tier2_action,
@@ -298,6 +344,7 @@ def _run_cascade(
         "tier_stats": dict(tier_stats),
         "pct_tier2_full": tier_stats.get(TIER_TIER2_FULL, 0) / n,
         "pct_tier1_type_tier2_action": tier_stats.get(TIER_MIXED, 0) / n,
+        "pct_tier1_promotion_protected": tier_stats.get(TIER_PROMOTION_TIER1_PROTECTED, 0) / n,
         "pct_tier3_llm": (tier_stats.get(TIER_LLM, 0) + tier_stats.get(TIER_LLM_UNAVAILABLE, 0)) / n,
         "tier2_resolutions_total": tier_stats.get(TIER_TIER2_FULL, 0) + tier_stats.get(TIER_MIXED, 0),
         "tier2_full_fraction_of_tier2": (
@@ -337,9 +384,11 @@ def _render_dataset_section(label: str, dataset_path: str, llm_result: dict, cas
     ts = cascade_result["tier_stats"]
     tier2_full = ts.get(TIER_TIER2_FULL, 0)
     mixed = ts.get(TIER_MIXED, 0)
+    promo_protected = ts.get(TIER_PROMOTION_TIER1_PROTECTED, 0)
     llm_n = ts.get(TIER_LLM, 0) + ts.get(TIER_LLM_UNAVAILABLE, 0)
     lines.append(f"| Tier 2 -- fully resolved (action + message_type both from classifier) | {tier2_full} | {tier2_full/n:.1%} |")
     lines.append(f"| Tier 1+2 mixed -- tier-2 action + tier-1 message_type | {mixed} | {mixed/n:.1%} |")
+    lines.append(f"| Tier 1 promotion-protected -- tier-1 action kept, tier-2 action never consulted | {promo_protected} | {promo_protected/n:.1%} |")
     lines.append(f"| Tier 3 -- escalated to LLM | {llm_n} | {llm_n/n:.1%} |")
     lines.append("")
     tier2_total = tier2_full + mixed
@@ -415,9 +464,11 @@ def _render_dataset_section(
     ts = cascade_result["tier_stats"]
     tier2_full = ts.get(TIER_TIER2_FULL, 0)
     mixed = ts.get(TIER_MIXED, 0)
+    promo_protected = ts.get(TIER_PROMOTION_TIER1_PROTECTED, 0)
     llm_n = ts.get(TIER_LLM, 0) + ts.get(TIER_LLM_UNAVAILABLE, 0)
     lines.append(f"| Tier 2 -- fully resolved (action + message_type both from classifier) | {tier2_full} | {tier2_full/n:.1%} |")
     lines.append(f"| Tier 1+2 mixed -- tier-2 action + tier-1 message_type | {mixed} | {mixed/n:.1%} |")
+    lines.append(f"| Tier 1 promotion-protected -- tier-1 action kept, tier-2 action never consulted | {promo_protected} | {promo_protected/n:.1%} |")
     lines.append(f"| Tier 3 -- escalated to LLM | {llm_n} | {llm_n/n:.1%} |")
     lines.append("")
     tier2_total = tier2_full + mixed

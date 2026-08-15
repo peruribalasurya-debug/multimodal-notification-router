@@ -123,25 +123,30 @@ cache-hit artifacts:
 
 | Dataset | | action acc | type acc | LLM calls | cost |
 |---|---|---|---|---|---|
-| Samples (n=30) | Pure LLM | 96.7% | 76.7% | 27 | $0.1604 |
-| Samples (n=30) | Cascade | 96.7% | 83.3% | 18 | $0.1055 |
-| Synthetic (n=18) | Pure LLM | 88.9% | 77.8% | 18 | $0.1003 |
-| Synthetic (n=18) | Cascade | 77.8%† | 77.8% | 15 | $0.0829 |
+| Samples (n=30) | Pure LLM | 96.7% | 76.7% | 27 | $0.1605 |
+| Samples (n=30) | Cascade | 96.7% | 90.0% | 15 | $0.0872 |
+| Synthetic (n=18) | Pure LLM | 83.3% | 83.3% | 18 | $0.1002 |
+| Synthetic (n=18) | Cascade | 88.9% | 88.9% | 13 | $0.0722 |
 
-Combined: **$0.2607 → $0.1884, a ~28% cost reduction** — specific to this 48-message eval
-set (45 → 33 LLM calls, ~27% fewer, resolving 17–37% of messages locally for free
+Combined: **$0.2607 → $0.1594, a ~38.9% cost reduction** — specific to this 48-message eval
+set (45 → 28 LLM calls, ~37.8% fewer, resolving 28–50% of messages locally for free
 depending on the set), not a claim about the full 110-message run or any other traffic
 mix; the tier-2 classifier was trained on only 103 labeled examples, and its
 coverage/accuracy on a materially different message distribution would need
-re-validating before trusting this exact number elsewhere.
-
-† See the callout below — most of this dataset's action-accuracy gap is LLM call
-non-determinism between the pure-LLM and cascade's *own* independent tier-3 calls, not the
-cascade design.
+re-validating before trusting this exact number elsewhere. These numbers reflect two
+hardening fixes made after the first version of this benchmark — see "What we learned"
+below for both.
 
 ---
 
-## What we learned: an emergency that looked like a scam
+## What we learned: two failures the eval sets didn't catch
+
+Both of the findings below became targeted structural fixes, not confidence-threshold
+tweaks. The first was caught by the offline synthetic eval set. The second wasn't caught
+by either eval set at all — it only surfaced from live testing against the deployed demo
+([`app.py`](./app.py)'s persona picker), by comparing two personas with real, opposite
+relationship histories against the same message. That's the case for treating "runs
+clean on the eval sets" as necessary, not sufficient.
 
 > **The cheap classifier was 99% confident, and wrong, about a genuine emergency.**
 >
@@ -169,6 +174,38 @@ cascade design.
 > structural answer, not a numeric one. After the fix, `synth_003` no longer even reaches
 > that decision: it's categorically excluded from tier 2 and escalates straight to the LLM,
 > which gets it right.
+
+> **Tier 2's action prediction erased personalization on promotional messages — and neither eval set caught it.**
+>
+> Found by testing the deployed demo directly, not `sample_messages.csv` or
+> `synthetic_test.csv`: two personas with opposite real relationship histories with the
+> same verified business (Myntra) — one an active, opted-in subscriber with positive
+> engagement, the other with zero `user_business_history` rows for that business at all —
+> were sent the identical message *"you have won 50% off on your next order through
+> myntra"*. Both got routed `mute`.
+>
+> The cause: tier 2's action head is trained on message phrasing (a 400-feature TF-IDF
+> signal over only ~103 rows), and "you have won X% off" reads as prize/lottery-scam-like
+> text no matter who receives it. It predicted `mute` at **p = 0.92–0.96** for both
+> personas — confident enough to clear the cascade's action-acceptance gate and override
+> tier 1's own action, which *does* read `allows_promotions`/opt-out/dismissal history and
+> would have said `digest` for the opted-in persona. The architecture's whole premise —
+> personalize on relationship, not just message content — was silently erased for every
+> promotional message the cheap classifier felt confident about, and it went unnoticed
+> because no row in either eval set happened to pair identical promotional text with two
+> divergent relationship histories.
+>
+> The fix: tier 2's action is now never consulted once tier 1 classifies a message as
+> `message_type=="promotion"` — tier 1's own relationship-aware action is authoritative
+> instead (`src/cascade_router.py`, `TIER_PROMOTION_TIER1_PROTECTED`), since promotion
+> routing is relationship-dependent by definition and tier 2 has no relationship signal
+> reliable enough to override it. Re-running the same two personas after the fix: they
+> correctly diverge (`digest` for the opted-in persona, `mute` for the one with no
+> relationship on file). On the full synthetic benchmark
+> ([`reports/cascade_benchmark.md`](./reports/cascade_benchmark.md)), this alone moved
+> action accuracy 77.8% → 88.9% and message_type accuracy 77.8% → 88.9%, at *lower* cost
+> ($0.0829 → $0.0722) — more messages now resolve for free at tier 1 instead of
+> escalating to tier 3.
 
 ---
 

@@ -706,11 +706,17 @@ the message being evaluated, and as an aggravating signal, not as a command to y
                     else "The message matches the user's known interests but is still low priority."
                 )
                 return self._rule_result("digest", "promotion", reason, 0.65, evidence_ids)
-            reason = (
-                "The user has opted out of or repeatedly dismissed similar marketing messages."
-                if promo_match
-                else "Similar historical messages were ignored, dismissed, or muted by this user."
-            )
+            # Mirrors the same three-way split used to compute opted_in above --
+            # promo_match/marketplace_match alone can't tell "explicitly opted
+            # out" apart from "no relationship on file at all" (e.g. u_015 in
+            # the Myntra cascade investigation had zero user_business_history
+            # rows for the business and was never "opted out" of anything).
+            if relationship is not None:
+                reason = "The user has opted out of or repeatedly dismissed similar marketing messages."
+            elif business is None:
+                reason = "Similar historical messages were ignored, dismissed, or muted by this user."
+            else:
+                reason = "No prior relationship with this business is on file, so opt-in cannot be assumed."
             return self._rule_result("mute", "promotion", reason, 0.7, evidence_ids)
 
         # 5. repeated forwards / greeting fatigue
