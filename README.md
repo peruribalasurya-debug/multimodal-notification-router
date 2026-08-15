@@ -1,5 +1,7 @@
 # Multimodal Notification Router
 
+🔗 **Live Demo:** [multimodal-notification-router-2ddhskdw2ysw43aeml6tky.streamlit.app](https://multimodal-notification-router-2ddhskdw2ysw43aeml6tky.streamlit.app/)
+
 A WhatsApp inbox mixes family chats, school circulars, business promotions, scams, and
 voice notes into a single stream, and treating every message the same produces two bad
 outcomes at once: important messages get buried, and low-value or unsafe ones interrupt
@@ -143,7 +145,8 @@ below for both.
 
 Both of the findings below became targeted structural fixes, not confidence-threshold
 tweaks. The first was caught by the offline synthetic eval set. The second wasn't caught
-by either eval set at all — it only surfaced from live testing against the deployed demo
+by either eval set at all — it only surfaced from live testing against the
+[deployed demo](https://multimodal-notification-router-2ddhskdw2ysw43aeml6tky.streamlit.app/)
 ([`app.py`](./app.py)'s persona picker), by comparing two personas with real, opposite
 relationship histories against the same message. That's the case for treating "runs
 clean on the eval sets" as necessary, not sufficient.
@@ -210,6 +213,11 @@ clean on the eval sets" as necessary, not sufficient.
 ---
 
 ## Getting started (fresh clone)
+
+Just want to try it? The [live demo](https://multimodal-notification-router-2ddhskdw2ysw43aeml6tky.streamlit.app/)
+needs no setup — pick a persona, send a message, done. Everything below is for running
+the full pipeline yourself (batch runs, eval, or modifying the code), which needs a
+local clone.
 
 The dataset ships with the repo under `dataset/` — there's no separate data-download or
 setup step. Clone, install, run:
